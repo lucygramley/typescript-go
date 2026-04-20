@@ -1177,22 +1177,46 @@ func (s *Server) handleInitialized(ctx context.Context, params *lsproto.Initiali
 	}
 	s.session.InitializeWithUserConfig(userPreferences)
 
-	_, err = sendClientRequest(ctx, s, lsproto.ClientRegisterCapabilityInfo, &lsproto.RegistrationParams{
-		Registrations: []*lsproto.Registration{
-			{
-				Id: "typescript-config-watch-id",
-				RegisterOptions: &lsproto.RegisterOptions{
-					WorkspaceDidChangeConfiguration: &lsproto.DidChangeConfigurationRegistrationOptions{
-						Section: &lsproto.StringOrStrings{
-							Strings: &[]string{"js/ts", "typescript", "javascript", "editor"},
-						},
+	registrations := []*lsproto.Registration{
+		{
+			Id: "typescript-config-watch-id",
+			RegisterOptions: &lsproto.RegisterOptions{
+				WorkspaceDidChangeConfiguration: &lsproto.DidChangeConfigurationRegistrationOptions{
+					Section: &lsproto.StringOrStrings{
+						Strings: &[]string{"js/ts", "typescript", "javascript", "editor"},
 					},
 				},
 			},
 		},
+	}
+
+	// Dynamically register the completion provider when the client supports it.
+	// Some clients (e.g. Visual Studio) require dynamic registration for completion
+	// to work properly with projected/virtual documents like .cshtml files.
+	// We use glob patterns rather than language IDs because VS's CapabilityRegistrar
+	// only matches document filters by file path pattern, not by language ID.
+	if s.clientCapabilities.TextDocument.Completion.DynamicRegistration {
+		completionGlob := "**/*.{ts,tsx,js,jsx,cts,cjs,mts,mjs}"
+		tsDocSelector := []lsproto.TextDocumentFilterLanguageOrSchemeOrPattern{
+			{Pattern: &lsproto.TextDocumentFilterPattern{Pattern: lsproto.PatternOrRelativePattern{Pattern: &completionGlob}}},
+		}
+		registrations = append(registrations, &lsproto.Registration{
+			Id: "typescript-completion-id",
+			RegisterOptions: &lsproto.RegisterOptions{
+				TextDocumentCompletion: &lsproto.CompletionRegistrationOptions{
+					DocumentSelector:  lsproto.DocumentSelectorOrNull{DocumentSelector: &tsDocSelector},
+					TriggerCharacters: &ls.TriggerCharacters,
+					ResolveProvider:   new(true),
+				},
+			},
+		})
+	}
+
+	_, err = sendClientRequest(ctx, s, lsproto.ClientRegisterCapabilityInfo, &lsproto.RegistrationParams{
+		Registrations: registrations,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to register configuration change watcher: %w", err)
+		return fmt.Errorf("failed to register capabilities: %w", err)
 	}
 
 	// !!! temporary.
