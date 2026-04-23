@@ -4205,24 +4205,41 @@ func (l *LanguageService) setItemDefaults(
 		}
 		if clientSupportsDefaultEditRange(ctx) {
 			itemDefaults = core.OrElse(itemDefaults, &lsproto.CompletionItemDefaults{})
-			itemDefaults.EditRange = &lsproto.RangeOrEditRangeWithInsertReplace{
-				EditRangeWithInsertReplace: &lsproto.EditRangeWithInsertReplace{
-					Insert:  insertRange,
-					Replace: *optionalReplacementSpan,
-				},
-			}
-			for _, item := range items {
-				// If `editRange` is set, `insertText` is ignored by the client, so we need to
-				// provide `textEdit` instead.
-				if item.InsertText != nil && item.TextEdit == nil {
-					item.TextEdit = &lsproto.TextEditOrInsertReplaceEdit{
-						InsertReplaceEdit: &lsproto.InsertReplaceEdit{
-							NewText: *item.InsertText,
-							Insert:  insertRange,
-							Replace: *optionalReplacementSpan,
-						},
+			if clientSupportsItemInsertReplace(ctx) {
+				itemDefaults.EditRange = &lsproto.RangeOrEditRangeWithInsertReplace{
+					EditRangeWithInsertReplace: &lsproto.EditRangeWithInsertReplace{
+						Insert:  insertRange,
+						Replace: *optionalReplacementSpan,
+					},
+				}
+				for _, item := range items {
+					// If `editRange` is set, `insertText` is ignored by the client, so we need to
+					// provide `textEdit` instead.
+					if item.InsertText != nil && item.TextEdit == nil {
+						item.TextEdit = &lsproto.TextEditOrInsertReplaceEdit{
+							InsertReplaceEdit: &lsproto.InsertReplaceEdit{
+								NewText: *item.InsertText,
+								Insert:  insertRange,
+								Replace: *optionalReplacementSpan,
+							},
+						}
+						item.InsertText = nil
 					}
-					item.InsertText = nil
+				}
+			} else {
+				itemDefaults.EditRange = &lsproto.RangeOrEditRangeWithInsertReplace{
+					Range: optionalReplacementSpan,
+				}
+				for _, item := range items {
+					if item.InsertText != nil && item.TextEdit == nil {
+						item.TextEdit = &lsproto.TextEditOrInsertReplaceEdit{
+							TextEdit: &lsproto.TextEdit{
+								NewText: *item.InsertText,
+								Range:   *optionalReplacementSpan,
+							},
+						}
+						item.InsertText = nil
+					}
 				}
 			}
 		} else if clientSupportsItemInsertReplace(ctx) {
